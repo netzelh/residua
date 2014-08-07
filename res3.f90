@@ -1,17 +1,16 @@
-program res3 !wywolanie programu: res <nazwa_pliku_z_residuami> <okres>
+program res3 !wywolanie programu: res <nazwa_pliku_z_residuami> <okres> [przedzial czasowy danych]
 implicit none
 
 	character (len=30) :: plik
 	character (len=30) :: period_ch
-	character (len=500) :: line,sys
+	character (len=500) :: sys
 	character (len=3) :: flaga=" " !T lub ZO lub TZO
 	
-	integer :: fn=10 !file name
+	integer :: fn=10 !file number
 	integer :: n !liczba wierszy
 	integer :: i,k
 	integer :: win=20 ! numer pliku z oknem spektralnym
 	integer :: trendwin=30 !numer pliku z oknem spektralnym trendu
-	integer :: u=50 !bedzie trzeba policzyc to u z rozdzielczosci transformaty
 	
 	real(kind=8), dimension (:,:), allocatable :: fs
 
@@ -23,136 +22,39 @@ implicit none
 !	real(kind=8) :: f2,a2,sn2 !efekt instrumentalny w 2
 !	real(kind=8) :: f1,a1,sn1 !efekt instrumentalny w 1
 	real(kind=8) :: fp2,ap2,snp2 !w pobliżu 2f
-	real(kind=8) :: fx,ax,snx !w szukanym zakresie, szukana czestosc X :)
+	real(kind=8) :: fx,ax,snx !w szukanym zakresie, szukana czestosc X
 	
-	real :: e=0.001 ! odrzucenie (trzeba poprawic na rozdzielczosc transformaty, t biore z .dat)
+	real :: r ! rozdzielczosc
 	
-	logical :: czy_zo=.false., czy_trend=.false., czy_bl=.false., czy_f2=.false.
-
-!flagi beda ustawiane poprzez zmienne logiczne czy_*
+	logical :: czy_zo=.false., czy_trend=.false., czy_bl=.false., czy_mod=.false.
 
 
-! WCZYTYWANIE ARGUMENTOW
-call getarg(1,plik)
-call getarg(2,period_ch)
-read(period_ch,*) period	
-f=dble(1.0)/period
-
-! WCZYTYWANIE PLIKU Z RESIDUAMI
-open(fn,file=plik)
-write (*,*) 'Plik: ',plik
-n=ile_wierszy(fn)
-allocate (fs(3,n)) !1-freq,2-amp,3-zero/jeden
-call getp(fs,fn,n)
-
-!max dla malych czestotliwosci f<0.003
-call maximum(fs,n,ft,at,dble(0.0),dble(0.003),k)
-call sn(fs,n,ft,at,0.2,snt)
-!jesli trend istnieje to wywalanie z analizy pikow z okna spektralnego dla 0.0
-!piki:
-!0.0000227
-!1.0027527
-!2.0027346
-!3.0080538
-!4.0110110
-!5.0110383
-!6.0000049
-!7.0191783
-!7.9945178
-if (snt.gt.4.0) then
-	czy_trend=.true.
-	write (*,*) 'jest trend'
-	do i=1,n
-		if ((fs(1,i).gt.0.0000227-e).and.(fs(1,i).lt.0.0000227+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.1.0027527-e).and.(fs(1,i).lt.1.0027527+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.2.0027346-e).and.(fs(1,i).lt.2.0027346+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.3.0080538-e).and.(fs(1,i).lt.3.0080538+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.4.0110110-e).and.(fs(1,i).lt.4.0110110+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.5.0110383-e).and.(fs(1,i).lt.5.0110383+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.6.0000049-e).and.(fs(1,i).lt.6.0000049+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.7.0191783-e).and.(fs(1,i).lt.7.0191783+e)) then
-			fs(3,i)=0.0
-		else if ((fs(1,i).gt.7.9945178-e).and.(fs(1,i).lt.7.9945178+e)) then
-			fs(3,i)=0.0
-		end if
-	end do
-end if
-
-!max dla 1 (trzeba testowac czy to jest alias trendu czy jest wyzsza amp, a moze nie bo sie wyklucza nie wazne przez ktore z tych wywalimy czestoci?)
-
-!max dla 2
-!to powyzsze wyjdzie w praniu czy trzeba dodac - moze jakis sladowy trend wystarczy zeby to sie usunelo i jednak pojawia sie zawsze z malym trendem
 
 
-!max w poblizu piku glownego - sprawdzanie czy efekt Blazki
-!max w poblizu piku glownego
-fmin=f-0.2
-fmax=f+0.2
+call get_arg (plik,period,f,r)				!wczytywanie argumentow wywolania
+call get_file(fn,fs,n) 					!wczytywanie pliku res do tablicy
 
-do
-	call maximum(fs,n,fp,ap,fmin,fmax,k)
-	call sn(fs,n,fp,ap,0.2,snp)
 
-	if (snp.gt.4.0) then !sprawdzanie istotnosci maksimum
-		if (abs(fp-f).lt.e) then !sprawdzanie czy zmiana okresu
-			write (*,*) fp,snp,'Zmiana okresu',k,1/(f-fp)
-			fs(3,k)=0
-			do i=1,u
-				if((k-i).ge.0) fs(3,k-i)=0
-				if((k+i).le.n) fs(3,k+i)=0
-			end do
-			czy_zo=.true.
-		else
-			write(*,*) fp,snp,'Blazko?',1/(f-fp)
-		!brakuje mi tu testu czy moge to przyjac za Blazko, ale po prostu wywalam do osobnej analizy tj musze przeskoczyc (goto?) z ustawieniem dobrej flagi
-		czy_bl=.true.
-		
-			fs(3,k)=0
-			do i=1,u
-				if((k-i).ge.0) fs(3,k-i)=0
-				if((k+i).le.n) fs(3,k+i)=0
-			end do
-			fmax=max(f+2*abs(f-fp)+e,f+0.2)
-			fmin=min(f-2*abs(f-fp)-e,f-0.2)
-		end if
-	else
-	!	if(czy_cos.eqv..false.) call system(' echo  " '//trim(plik)//' " >> test-nic.txt')
-		write (*,*) 'Brak wyraznego sygnalu w poblizu glownej czestosci'
-		!to znaczy ze mozna przeszukiwac obszar :)
-		exit
-	end if
-	
-end do
 
-!i tu musi byc wyskoczenie do zapisywania gwiazdy jesli blazko! tzn do dalszej analizy jesli jest podejzana o Blazko bo moga wpadac aliasy modu 0.61
+!fragment do testowania
+!open (60,file='sss.txt')
+!do i=1,n
+!	write (60,*) fs(1,i),fs(2,i),fs(3,i)
+!end do
+!close (60)
+!~~~~~~~~~~~~~~~~~~
 
-!odrzucenie aliasow jest jest zmiana okresu
-if (czy_zo.eqv..true.) then
-	
-end if
+call trend			!max dla malych czestotliwosci f<0.003
+call pik_gl 				!max w poblizu piku glownego - sprawdzanie czy efekt Blazki (odrzucenie gwiazdy do innej analizy)
+call szukaj_px 				!max w szukanym zakresie
 
-! przeszukiwanie aliasow 2f ma sens wtedy, gdy jest zmiennosc modu podstawowego raczej - wyjdzie w praniu albo zapytac
-
-!max w szukanym zakresie
-fmin=f/0.64
-fmax=f/0.58
-
-call maximum(fs,n,fx,ax,fmin,fmax,k)
-call sn(fs,n,fx,ax,0.2,snx)
-write (*,*) ' fx: ',fx,'snx: ',snx, 'px/p=',f/fx
-if (snx.gt.4.0) then
-	write (*,*) 'JEST MOD!'
-else
-	write (*,*) 'nic'
-end if
-	
+!fragment do testowania
+!open (50,file='ppp.txt')
+!do i=1,n
+!	write (50,*) fs(1,i),fs(2,i),fs(3,i)
+!end do
+!close (50)
+!~~~~~~~~~~~~~~~~~~
 	
 !write (line,'(a25,f11.7,6f20.16,a5)') plik, period,f1,sn1,f2,sn2,f3,sn3,flaga
 !write (*,*) line
@@ -161,9 +63,225 @@ end if
 deallocate(fs)
 close(fn)
 
+call flagi
+
 CONTAINS
 
-subroutine sn(fs,n,freq,amp,box,snr)
+
+subroutine szukaj_px
+
+	fmin=f/0.64
+	fmax=f/0.58
+
+	call maximum(fs,n,fx,ax,fmin,fmax)
+	call sn(fs,n,fx,0.2,snx)
+!	write (*,*) ' fx: ',fx,'snx: ',snx, 'px/p=',f/fx
+	if (snx.gt.4.0) then
+	!	write (*,*) 'JEST MOD!'
+		czy_mod=.true.
+!	else
+!		write (*,*) 'nic'
+	end if
+
+end subroutine
+
+subroutine pik_gl
+implicit none
+
+	fmin=f-0.2
+	fmax=f+0.2
+
+	do
+		call maximum(fs,n,fp,ap,fmin,fmax)
+		call sn(fs,n,fp,0.2,snp)
+	!	write (*,*) 'fp=',fp,'snp=',snp
+		if (snp.gt.4.0) then
+			if (abs(fp-f).lt.r) then
+	!			write (*,*) fp,snp,'Zmiana okresu',k,1/(f-fp)
+!				fs(3,k)=0
+				do i=1,n
+					if ((fs(1,i).gt.(fp-r)).and.(fs(1,i).lt.(fp+r))) fs(3,i)=0.0
+				end do
+				czy_zo=.true.
+				call zo	(fs,n,fp,r)				
+			else
+	!			write(*,*) fp,snp,'Blazko? Osobna analiza',1/(f-fp)
+				czy_bl=.true.
+				do i=1,n
+					if ((fs(1,i).gt.(fp-r)).and.(fs(1,i).lt.(fp+r))) fs(3,i)=0.0
+				end do
+				fmax=max(f+2*abs(f-fp)+r,f+0.2)
+				fmin=min(f-2*abs(f-fp)-r,f-0.2)
+			end if
+		else
+	!		write (*,*) 'Brak wyraznego sygnalu w poblizu glownej czestosci'
+			exit
+		end if
+		
+	end do
+
+end subroutine
+
+subroutine zo (fs,n,fp,r)
+implicit none
+
+	real(kind=8), dimension (:,:), allocatable :: fs
+	integer :: n !liczba wierszy
+	real(kind=8) :: fp
+	real :: r ! rozdzielczosc
+	real :: d=1.0027 ! doba gwiazdowa
+	integer :: i,j
+	
+	do j=1,9
+		do i=1,n
+			if((fs(1,i).ge.(fp+j*d-r)).and.(fs(1,i).le.(fp+j*d+r))) then
+				fs(3,i)=0.0
+			end if
+		end do
+	end do	
+
+end subroutine
+
+subroutine flagi
+implicit none
+
+	character (len=500) :: line,pom
+	character (len=20) :: sx_ch
+	real :: sx
+	
+	sx=fp/fx
+	
+	write (sx_ch,*) sx
+	
+	line=plik(0:len_trim(plik)-4)//" "//trim(period_ch)//" "//trim(sx_ch)
+			
+	if (czy_trend) then
+		pom=line
+		line=trim(pom)//" T "
+	end if
+
+	if (czy_zo) then
+		pom=line
+		line=trim(pom)//" ZO "
+	end if
+	
+	if (czy_bl) then
+		pom=line
+		line=trim(pom)//" BL "
+	end if
+	
+	if (czy_mod) then
+		pom=line
+		line=trim(pom)//" MOD "
+	end if
+
+	write (*,*) line,fp,fx
+	
+	!call system('echo " '//trim(line)//' " >> probka-res3.txt')
+
+end subroutine
+
+subroutine trend
+implicit none
+
+	integer :: k,u=500
+
+	call maximum(fs,n,ft,at,dble(0.0),dble(0.003))
+	call sn(fs,n,ft,0.2,snt)
+!	write (*,*) 'ft=',ft,'snt=',snt
+	!jesli trend istnieje to wywalanie z analizy pikow z okna spektralnego dla 0.0
+	!piki:
+	!0.0000227
+	!1.0027527
+	!2.0027346
+	!3.0080538
+	!4.0110110
+	!5.0110383
+	!6.0000049
+	!7.0191783
+	!7.9945178
+	if (snt.gt.4.0) then
+		czy_trend=.true.
+	!	write (*,*) 'jest trend'
+		do i=1,n
+			if ((fs(1,i).gt.0.0000227-r).and.(fs(1,i).lt.0.0000227+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.1.0027527-r).and.(fs(1,i).lt.1.0027527+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.2.0027346-r).and.(fs(1,i).lt.2.0027346+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.3.0080538-r).and.(fs(1,i).lt.3.0080538+r)) then
+				fs(3,i)=0.0
+				
+			else if ((fs(1,i).gt.4.0110110-r).and.(fs(1,i).lt.4.0110110+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.5.0110383-r).and.(fs(1,i).lt.5.0110383+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.6.0000049-r).and.(fs(1,i).lt.6.0000049+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.7.0191783-r).and.(fs(1,i).lt.7.0191783+r)) then
+				fs(3,i)=0.0
+
+			else if ((fs(1,i).gt.7.9945178-r).and.(fs(1,i).lt.7.9945178+r)) then
+				fs(3,i)=0.0
+
+			end if
+		end do
+	end if
+
+end subroutine
+
+subroutine get_arg(plik,period,f,r)
+implicit none
+
+	character (len=30) :: plik
+	character (len=15) :: t_ch
+	integer :: na
+	integer :: u
+	real :: t,r
+	real, parameter :: df=5
+	real(kind=8) :: period,f
+	
+	na=iargc()
+	
+	select case(na)
+		case (2)
+			r=0.001
+		case (3)
+			call getarg(3,t_ch)
+			read (t_ch,*) t
+			r=2.0/t
+	end select
+	
+	call getarg(1,plik)
+	call getarg(2,period_ch)
+	read(period_ch,*) period	
+	f=dble(1.0)/period
+
+end subroutine
+
+subroutine get_file(fn,fs,n)
+implicit none
+
+	real(kind=8), dimension (:,:), allocatable :: fs
+	integer :: fn !file number
+	integer :: n !liczba wierszy
+
+	open(fn,file=plik)
+	write (*,*) 'Plik: ',plik
+	n=ile_wierszy(fn)
+	allocate (fs(3,n)) !1-freq,2-amp,3-zero/jeden
+	call getp(fs,fn,n)
+
+end subroutine
+
+subroutine sn(fs,n,freq,box,snr)
 implicit none
 
 	real(kind=8), dimension (:,:), allocatable :: fs
@@ -175,7 +293,7 @@ implicit none
 	real(kind=8) :: fmin_out,fmin_in,fmax_out,fmax_in
 	real(kind=8) :: signal,noise
 	
-	signal=amp
+
 	
 	fmin_out=max(freq-dble(box/2.0),dble(0.0))
 	fmin_in=freq-dble(box/40.0)
@@ -183,16 +301,23 @@ implicit none
 	fmax_out=min(freq+dble(box/2.0),dble(10.0))
 	
 	j=0
-	noise=0
+	noise=dble(0)
+	signal=dble(0)
+
 	do i=1,n
-		if(((fs(1,i).ge.fmin_out).and.(fs(1,i).le.fmin_in)).or.((fs(1,i).ge.fmax_in).and.(fs(1,i).le.fmax_out))) then
+		if(((fs(1,i).ge.fmin_out).and.(fs(1,i).lt.fmin_in)).or.((fs(1,i).gt.fmax_in).and.(fs(1,i).le.fmax_out))) then
 			noise=noise+fs(2,i)
 			j=j+1
+		end if
+		if((fs(1,i).ge.fmin_in).and.(fs(1,i).le.fmax_in)) then
+			signal=max(signal,fs(2,i))
 		end if
 	end do
 	noise=noise/dble(j)
 	
 	snr=signal/noise
+	
+	write (*,*) freq,snr
 
 end subroutine sn
 
@@ -208,7 +333,7 @@ implicit none
 		fs(3,i)=1.0
 	end do
 	
-	write (*,*) 'OK, wczytano dane do programu'
+!	write (*,*) 'OK, wczytano dane do programu'
 	
 end subroutine
 
@@ -233,7 +358,7 @@ implicit none
 
 end function
 
-subroutine maximum (fs,n,freqmax,ampmax,fmin,fmax,k)
+subroutine maximum (fs,n,freqmax,ampmax,fmin,fmax)
 implicit none
 
 	real(kind=8), dimension (:,:), allocatable :: fs
